@@ -1,54 +1,85 @@
-use std::alloc::{self, Layout};
-use std::mem::ManuallyDrop;
-use std::ops::{Deref, DerefMut};
-use std::ptr::NonNull;
-use std::{mem, ptr};
+//! A minimal `Vec`-like collection implemented with manual allocation.
+//!
+//! This crate provides `LessVec<T>`, a small, educational reimplementation of
+//! `std::vec::Vec<T>` following patterns from the Rustonomicon. It's intended
+//! for learning and small use-cases, not as a drop-in replacement for `Vec`.
+//!
+//! # Examples
+//! ```
+//! use lessvec::LessVec;
+//!
+//! let mut v = LessVec::new();
+//! v.push(1);
+//! v.push(2);
+//! assert_eq!(&*v, &[1, 2]);
+//! assert_eq!(v.pop(), Some(2));
+//! ```
+//!
+//! See individual method docs for more examples.
+use std::{
+    alloc::{self, Layout},
+    marker::PhantomData,
+    mem,
+    ops::{Deref, DerefMut},
+    ptr::{self, NonNull},
+};
 
-pub struct Vec<T> {
+struct RawVec<T> {
     ptr: NonNull<T>,
     cap: usize,
-    len: usize,
 }
 
-unsafe impl<T: Send> Send for Vec<T> {}
-unsafe impl<T: Sync> Sync for Vec<T> {}
+unsafe impl<T: Send> Send for RawVec<T> {}
+unsafe impl<T: Sync> Sync for RawVec<T> {}
 
-impl<T> Vec<T> {
-    pub fn new() -> Self {
-        assert!(mem::size_of::<T>() != 0, "Can't handle ZSTs yet");
-        Vec {
-            ptr: NonNull::dangling(),
-            cap: 0,
-            len: 0,
-        }
-    }
-}
-
-impl<T> Vec<T> {
-    fn grow(&mut self) {
-        let (new_cap, new_layout) = if self.cap == 0 {
-            (1, Layout::array::<T>(1))
+impl<T> RawVec<T> {
+    fn new() -> Self {
+        let cap = if mem::size_of::<T>() == 0 {
+            usize::MAX
         } else {
-            // shouldn't overflow since self.cap <= isize::MAX
-            let new_cap = 2 * self.cap;
-            (new_cap, Layout::array::<T>(new_cap))
+            0
         };
 
-        // `Layout::array` checks that the number of bytes allocated is in 1..=isize::MAX
-        // and will error otherwise. An allocation of 0 bytes isn't possible because of the
-        // above condition.
-        let new_layout = new_layout.expect("Allocation too large");
+        // `NonNull::dangling` doubles as "unallocated" and "zero-sized allocation"
+        RawVec {
+            ptr: NonNull::dangling(),
+            cap,
+        }
+    }
+
+    fn grow(&mut self) {
+        // since we set the capacity to usize::MAX when T has size 0, getting
+        // to here means Vec is overfull.
+        assert!(mem::size_of::<T>() != 0, "capacity overflow");
+
+        let (new_cap, new_layout) = if self.cap == 0 {
+            (1, Layout::array::<T>(1).unwrap())
+        } else {
+            // `new_cap` will not overflow because `self.cap <= isize::MAX`.
+            let new_cap = 2 * self.cap;
+
+            // `Layout::array` checks that the number of bytes is <= usize::MAX,
+            // but this is redundant since old_layout.size() <= isize::MAX,
+            // `unwrap` should never fail.
+            let new_layout = Layout::array::<T>(new_cap).unwrap();
+            (new_cap, new_layout)
+        };
+
+        // Ensure that the new allocation doesn't overflow; <= isize::MAX bytes.
+        assert!(
+            new_layout.size() <= isize::MAX as usize,
+            "Allocation too large"
+        );
 
         let new_ptr = if self.cap == 0 {
             unsafe { alloc::alloc(new_layout) }
         } else {
             let old_layout = Layout::array::<T>(self.cap).unwrap();
             let old_ptr = self.ptr.as_ptr() as *mut u8;
-
             unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
         };
 
-        // new_ptr will be null if allocation fails, abort
+        // new_ptr becomes null if allocation fails, abort.
         self.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
             None => alloc::handle_alloc_error(new_layout),
@@ -57,157 +88,636 @@ impl<T> Vec<T> {
         self.cap = new_cap;
     }
 
+    fn grow_to(&mut self, new_cap: usize) {
+        if mem::size_of::<T>() == 0 {
+            return;
+        }
+        if new_cap <= self.cap {
+            return;
+        }
+
+        let new_layout = Layout::array::<T>(new_cap).unwrap();
+        assert!(
+            new_layout.size() <= isize::MAX as usize,
+            "Allocation too large"
+        );
+
+        let new_ptr = if self.cap == 0 {
+            unsafe { alloc::alloc(new_layout) }
+        } else {
+            let old_layout = Layout::array::<T>(self.cap).unwrap();
+            let old_tr = self.ptr.as_ptr() as *mut u8;
+            unsafe { alloc::realloc(old_tr, old_layout, new_layout.size()) }
+        };
+
+        self.ptr = match NonNull::new(new_ptr as *mut T) {
+            Some(p) => p,
+            None => alloc::handle_alloc_error(new_layout),
+        };
+
+        self.cap = new_cap;
+    }
+}
+
+impl<T> Drop for RawVec<T> {
+    fn drop(&mut self) {
+        if self.cap != 0 && std::mem::size_of::<T>() > 0 {
+            let layout = std::alloc::Layout::array::<T>(self.cap).unwrap();
+            unsafe {
+                std::alloc::dealloc(self.ptr.as_ptr() as *mut _, layout);
+            }
+        }
+    }
+}
+
+/// A minimal growable contiguous vector.
+///
+/// `LessVec<T>` stores elements in a heap buffer and supports a small set of
+/// `Vec`-like operations. Use the methods below to manipulate the collection.
+///
+/// # Examples
+///
+/// ```
+/// use lessvec::LessVec;
+///
+/// let mut v = LessVec::new();
+/// v.push(10);
+/// v.push(20);
+/// assert_eq!(v.len(), 2);
+/// assert!(!v.is_empty());
+/// assert!(v.capacity() >= 2);
+/// ```
+pub struct LessVec<T> {
+    buf: RawVec<T>,
+    len: usize,
+}
+
+unsafe impl<T: Send> Send for LessVec<T> {}
+unsafe impl<T: Sync> Sync for LessVec<T> {}
+
+impl<T> Default for LessVec<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> LessVec<T> {
+    fn ptr(&self) -> *mut T {
+        self.buf.ptr.as_ptr()
+    }
+
+    fn cap(&self) -> usize {
+        self.buf.cap
+    }
+
+    /// Creates a new, empty `LessVec`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let v: LessVec<i32> = LessVec::new();
+    /// assert_eq!(v.len(), 0);
+    /// ```
+    pub fn new() -> Self {
+        LessVec {
+            buf: RawVec::new(),
+            len: 0,
+        }
+    }
+
+    /// Returns the number of elements in the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(1);
+    /// assert_eq!(v.len(), 1);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns `true` if the vector contains no elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// assert!(v.is_empty());
+    /// v.push(1);
+    /// assert!(!v.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the number of elements the `LessVec` can hold without reallocating.
+    ///
+    /// Note: capacity may be larger than the number of elements. Calling
+    /// `reserve` or `reserve_exact` increases capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v: LessVec<i32> = LessVec::new();
+    /// v.reserve(5);
+    /// assert!(v.capacity() >= 5);
+    /// ```
+    pub fn capacity(&self) -> usize {
+        self.cap()
+    }
+
+    /// Clears the vector, removing all values.
+    ///
+    /// This drops each element in the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(1);
+    /// v.clear();
+    /// assert!(v.is_empty());
+    /// ```
+    pub fn clear(&mut self) {
+        while self.pop().is_some() {}
+    }
+
+    /// Returns a slice containing all elements of the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(1);
+    /// assert_eq!(v.as_slice(), &[1]);
+    /// ```
+    pub fn as_slice(&self) -> &[T] {
+        self
+    }
+
+    /// Returns a mutable slice containing all elements of the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(1);
+    /// v.as_mut_slice()[0] = 2;
+    /// assert_eq!(v.as_slice(), &[2]);
+    /// ```
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut *self
+    }
+
+    /// Ensures the `LessVec` can hold at least `additional` more elements without reallocating.
+    ///
+    /// This grows capacity exponentially where necessary.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v: LessVec<i32> = LessVec::new();
+    /// v.reserve(10);
+    /// assert!(v.capacity() >= 10);
+    /// ```
+    pub fn reserve(&mut self, additional: usize) {
+        let required = self.len.checked_add(additional).expect("capacity overflow");
+        if self.cap() >= required {
+            return;
+        }
+        while self.cap() < required {
+            self.buf.grow();
+        }
+    }
+
+    /// Ensures the `LessVec` has capacity for exactly `additional` more elements (no fewer).
+    ///
+    /// Unlike `reserve`, this attempts to allocate the exact requested capacity in one go.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v: LessVec<i32> = LessVec::new();
+    /// v.reserve_exact(3);
+    /// assert!(v.capacity() >= 3);
+    /// ```
+    pub fn reserve_exact(&mut self, additional: usize) {
+        let required = self.len.checked_add(additional).expect("capacity overflow");
+        if self.cap() >= required {
+            return;
+        }
+        self.buf.grow_to(required);
+    }
+
+    /// Appends an element to the back of the collection.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(5);
+    /// assert_eq!(v.len(), 1);
+    /// assert_eq!(v.as_slice(), &[5]);
+    /// ```
     pub fn push(&mut self, elem: T) {
-        if self.len == self.cap {
-            self.grow();
+        if self.len == self.cap() {
+            self.buf.grow();
         }
 
         unsafe {
-            ptr::write(self.ptr.as_ptr().add(self.len), elem);
+            ptr::write(self.ptr().add(self.len), elem);
         }
 
         // This operation will not fail, we will get OOM first.
         self.len += 1;
     }
 
+    /// Removes the last element and returns it, or `None` if empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(10);
+    /// assert_eq!(v.pop(), Some(10));
+    /// assert_eq!(v.pop(), None);
+    /// ```
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 {
             None
         } else {
             self.len -= 1;
-            unsafe { Some(ptr::read(self.ptr.as_ptr().add(self.len))) }
+            unsafe { Some(ptr::read(self.ptr().add(self.len))) }
         }
     }
 
+    /// Inserts an element at `index`, shifting elements to the right.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index > len`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(1);
+    /// v.push(3);
+    /// v.insert(1, 2);
+    /// assert_eq!(v.as_slice(), &[1, 2, 3]);
+    /// ```
     pub fn insert(&mut self, index: usize, elem: T) {
         assert!(index <= self.len, "index out of bounds");
-        if self.len == self.cap {
-            self.grow();
+        if self.len == self.cap() {
+            self.buf.grow();
         }
 
         unsafe {
             ptr::copy(
-                self.ptr.as_ptr().add(index),
-                self.ptr.as_ptr().add(index + 1),
+                self.ptr().add(index),
+                self.ptr().add(index + 1),
                 self.len - index,
             );
-            ptr::write(self.ptr.as_ptr().add(index), elem);
+            ptr::write(self.ptr().add(index), elem);
         }
 
         self.len += 1;
     }
 
+    /// Removes and returns the element at `index`, shifting elements left.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= len`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(1);
+    /// v.push(2);
+    /// assert_eq!(v.remove(0), 1);
+    /// assert_eq!(v.as_slice(), &[2]);
+    /// ```
     pub fn remove(&mut self, index: usize) -> T {
         assert!(index < self.len, "index out of bounds");
         unsafe {
             self.len -= 1;
-            let result = ptr::read(self.ptr.as_ptr().add(index));
+            let result = ptr::read(self.ptr().add(index));
             ptr::copy(
-                self.ptr.as_ptr().add(index + 1),
-                self.ptr.as_ptr().add(index),
+                self.ptr().add(index + 1),
+                self.ptr().add(index),
                 self.len - index,
             );
             result
         }
     }
-}
 
-impl<T> Drop for Vec<T> {
-    fn drop(&mut self) {
-        if self.len != 0 {
-            while let Some(_) = self.pop() {}
-            let layout = Layout::array::<T>(self.cap).unwrap();
-            unsafe {
-                alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
-            }
+    /// Removes all elements and returns an iterator that yields the removed elements.
+    ///
+    /// The vector's length is set to zero immediately; elements are yielded by the returned iterator.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
+    /// v.push(10);
+    /// v.push(20);
+    /// let drained: Vec<_> = v.drain().collect();
+    /// assert_eq!(drained, vec![10, 20]);
+    /// assert!(v.is_empty());
+    /// ```
+    pub fn drain(&'_ mut self) -> Drain<'_, T> {
+        let iter = unsafe { RawValIter::new(self) };
+
+        self.len = 0;
+
+        Drain {
+            iter,
+            vec: PhantomData,
         }
     }
 }
 
-impl<T> Deref for Vec<T> {
+impl<T> Drop for LessVec<T> {
+    fn drop(&mut self) {
+        if self.len != 0 {
+            // deallocation is handled by RawVec
+            while self.pop().is_some() {}
+        }
+    }
+}
+
+impl<T> Deref for LessVec<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
-        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+        unsafe { std::slice::from_raw_parts(self.ptr(), self.len) }
     }
 }
 
-impl<T> DerefMut for Vec<T> {
+impl<T> DerefMut for LessVec<T> {
     fn deref_mut(&mut self) -> &mut [T] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+        unsafe { std::slice::from_raw_parts_mut(self.ptr(), self.len) }
     }
 }
 
-pub struct IntoIter<T> {
-    buf: NonNull<T>,
-    cap: usize,
+struct RawValIter<T> {
     start: *const T,
     end: *const T,
 }
 
-impl<T> IntoIterator for Vec<T> {
-    type Item = T;
-    type IntoIter = IntoIter<T>;
-    fn into_iter(self) -> IntoIter<T> {
-        let vec = ManuallyDrop::new(self);
-
-        let ptr = vec.ptr;
-        let cap = vec.cap;
-        let len = vec.len;
-
-        IntoIter {
-            buf: ptr,
-            cap,
-            start: ptr.as_ptr(),
-            end: if cap == 0 {
-                ptr.as_ptr()
+impl<T> RawValIter<T> {
+    // unsafe construct because it has no associated lifetimes. This is
+    // necessary to store RawValIter as in the same struct as its actual
+    // allocation. OK to use since it's a private implementation detail.
+    unsafe fn new(slice: &[T]) -> Self {
+        RawValIter {
+            start: slice.as_ptr(),
+            end: if mem::size_of::<T>() == 0 {
+                ((slice.as_ptr() as usize) + slice.len()) as *const _
+            } else if slice.is_empty() {
+                slice.as_ptr()
             } else {
-                unsafe { ptr.as_ptr().add(len) }
+                unsafe { slice.as_ptr().add(slice.len()) }
             },
         }
     }
 }
 
-impl<T> Iterator for IntoIter<T> {
+impl<T> Iterator for RawValIter<T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
         if self.start == self.end {
             None
         } else {
             unsafe {
-                let result = ptr::read(self.start);
-                self.start = self.start.offset(1);
-                Some(result)
+                if mem::size_of::<T>() == 0 {
+                    self.start = (self.start as usize + 1) as *const _;
+                    Some(ptr::read(NonNull::<T>::dangling().as_ptr()))
+                } else {
+                    let old_ptr = self.start;
+                    self.start = self.start.offset(1);
+                    Some(ptr::read(old_ptr))
+                }
             }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = (self.end as usize - self.start as usize) / mem::size_of::<T>();
+        let elem_size = mem::size_of::<T>();
+        let len =
+            (self.end as usize - self.start as usize) / if elem_size == 0 { 1 } else { elem_size };
+
         (len, Some(len))
     }
 }
 
-impl<T> DoubleEndedIterator for IntoIter<T> {
+impl<T> DoubleEndedIterator for RawValIter<T> {
     fn next_back(&mut self) -> Option<T> {
         if self.start == self.end {
             None
         } else {
             unsafe {
-                self.end = self.end.offset(-1);
-                Some(ptr::read(self.end))
+                if mem::size_of::<T>() == 0 {
+                    self.end = (self.end as usize - 1) as *const _;
+                    Some(ptr::read(NonNull::<T>::dangling().as_ptr()))
+                } else {
+                    self.end = self.end.offset(-1);
+                    Some(ptr::read(self.end))
+                }
             }
         }
     }
 }
 
+/// Iterator that yields values by value when consuming a `LessVec`.
+///
+/// # Examples
+///
+/// ```
+/// use lessvec::LessVec;
+/// let mut v = LessVec::new();
+/// v.push(1);
+/// v.push(2);
+/// let out: Vec<_> = v.into_iter().collect();
+/// assert_eq!(out, vec![1, 2]);
+/// ```
+pub struct IntoIter<T> {
+    _buf: RawVec<T>,
+    iter: RawValIter<T>,
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        self.iter.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<T> DoubleEndedIterator for IntoIter<T> {
+    fn next_back(&mut self) -> Option<T> {
+        self.iter.next_back()
+    }
+}
+
 impl<T> Drop for IntoIter<T> {
     fn drop(&mut self) {
-        if self.cap != 0 {
-            for _ in &mut *self {}
-            let layout = Layout::array::<T>(self.cap).unwrap();
-            unsafe {
-                alloc::dealloc(self.buf.as_ptr() as *mut u8, layout);
-            }
+        for _ in &mut *self {}
+    }
+}
+
+impl<T> IntoIterator for LessVec<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+    fn into_iter(self) -> IntoIter<T> {
+        unsafe {
+            let iter = RawValIter::new(&self);
+
+            let buf = ptr::read(&self.buf);
+            mem::forget(self);
+
+            IntoIter { _buf: buf, iter }
         }
+    }
+}
+
+/// An iterator produced by `LessVec::drain`.
+///
+/// Iterates over and yields the drained elements by value.
+///
+/// # Examples
+///
+/// ```
+/// use lessvec::LessVec;
+/// let mut v = LessVec::new();
+/// v.push(1);
+/// v.push(2);
+/// let drained: Vec<_> = v.drain().collect();
+/// assert_eq!(drained, vec![1, 2]);
+/// ```
+pub struct Drain<'a, T: 'a> {
+    vec: PhantomData<&'a mut LessVec<T>>,
+    iter: RawValIter<T>,
+}
+
+impl<'a, T> Iterator for Drain<'a, T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        self.iter.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.iter.next_back()
+    }
+}
+
+impl<'a, T> Drop for Drain<'a, T> {
+    fn drop(&mut self) {
+        for _ in &mut *self {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::LessVec;
+
+    #[test]
+    fn push_pop_roundtrip() {
+        let mut v = LessVec::new();
+        v.push(1);
+        v.push(2);
+        v.push(3);
+
+        assert_eq!(v.pop(), Some(3));
+        assert_eq!(v.pop(), Some(2));
+        assert_eq!(v.pop(), Some(1));
+        assert_eq!(v.pop(), None);
+    }
+
+    #[test]
+    fn insert_remove() {
+        let mut v = LessVec::new();
+        v.push(1);
+        v.push(3);
+        v.insert(1, 2);
+
+        assert_eq!(&*v, &[1, 2, 3]);
+        assert_eq!(v.remove(1), 2);
+        assert_eq!(&*v, &[1, 3]);
+    }
+
+    #[test]
+    fn drain_consumes_elements() {
+        let mut v = LessVec::new();
+        v.push(10);
+        v.push(20);
+        v.push(30);
+
+        let drained: Vec<_> = v.drain().collect();
+        assert_eq!(drained, vec![10, 20, 30]);
+        assert_eq!(&*v, &[]);
+    }
+
+    #[test]
+    fn into_iter_works() {
+        let mut v = LessVec::new();
+        v.push(1);
+        v.push(2);
+        v.push(3);
+
+        let collected: Vec<_> = v.into_iter().collect();
+        assert_eq!(collected, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn reserve_and_capacity() {
+        let mut v: LessVec<i32> = LessVec::new();
+        v.reserve(5);
+        assert!(v.capacity() >= 5);
+        v.reserve_exact(10);
+        assert!(v.capacity() >= 10);
+    }
+
+    #[test]
+    fn clear_works() {
+        let mut v = LessVec::new();
+        v.push(1);
+        v.clear();
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn as_slice_and_mut() {
+        let mut v = LessVec::new();
+        v.push(1);
+        assert_eq!(v.as_slice(), &[1]);
+        v.as_mut_slice()[0] = 2;
+        assert_eq!(v.as_slice(), &[2]);
     }
 }
