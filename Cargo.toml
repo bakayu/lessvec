@@ -1,6 +1,6 @@
 [package]
 name = "lessvec"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "A custom Vec implementation using the Rust standard library."
 authors = ["Ayush Chauhan (bakayu) <mail@ayuch.dev>"]
