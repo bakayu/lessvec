@@ -43,7 +43,7 @@ impl<T> RawVec<T> {
         // `NonNull::dangling` doubles as "unallocated" and "zero-sized allocation"
         RawVec {
             ptr: NonNull::dangling(),
-            cap: cap,
+            cap,
         }
     }
 
@@ -107,7 +107,7 @@ impl<T> RawVec<T> {
         } else {
             let old_layout = Layout::array::<T>(self.cap).unwrap();
             let old_tr = self.ptr.as_ptr() as *mut u8;
-            unsafe { alloc::realloc(old_tr, old_layout, new_layout.size() as usize) }
+            unsafe { alloc::realloc(old_tr, old_layout, new_layout.size()) }
         };
 
         self.ptr = match NonNull::new(new_ptr as *mut T) {
@@ -154,6 +154,12 @@ pub struct MiniVec<T> {
 
 unsafe impl<T: Send> Send for MiniVec<T> {}
 unsafe impl<T: Sync> Sync for MiniVec<T> {}
+
+impl<T> Default for MiniVec<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<T> MiniVec<T> {
     fn ptr(&self) -> *mut T {
@@ -240,7 +246,7 @@ impl<T> MiniVec<T> {
     /// assert!(v.is_empty());
     /// ```
     pub fn clear(&mut self) {
-        while let Some(_) = self.pop() {}
+        while self.pop().is_some() {}
     }
 
     /// Returns a slice containing all elements of the vector.
@@ -254,7 +260,7 @@ impl<T> MiniVec<T> {
     /// assert_eq!(v.as_slice(), &[1]);
     /// ```
     pub fn as_slice(&self) -> &[T] {
-        &*self
+        self
     }
 
     /// Returns a mutable slice containing all elements of the vector.
@@ -438,7 +444,7 @@ impl<T> MiniVec<T> {
     /// assert!(v.is_empty());
     /// ```
     pub fn drain(&'_ mut self) -> Drain<'_, T> {
-        let iter = unsafe { RawValIter::new(&self) };
+        let iter = unsafe { RawValIter::new(self) };
 
         self.len = 0;
 
@@ -453,7 +459,7 @@ impl<T> Drop for MiniVec<T> {
     fn drop(&mut self) {
         if self.len != 0 {
             // deallocation is handled by RawVec
-            while let Some(_) = self.pop() {}
+            while self.pop().is_some() {}
         }
     }
 }
@@ -485,7 +491,7 @@ impl<T> RawValIter<T> {
             start: slice.as_ptr(),
             end: if mem::size_of::<T>() == 0 {
                 ((slice.as_ptr() as usize) + slice.len()) as *const _
-            } else if slice.len() == 0 {
+            } else if slice.is_empty() {
                 slice.as_ptr()
             } else {
                 unsafe { slice.as_ptr().add(slice.len()) }
