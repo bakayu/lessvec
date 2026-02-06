@@ -1,9 +1,9 @@
-use minivec::MiniVec;
+use lessvec::LessVec;
 
 fn main() {
     // Basic push/pop
     println!(">>> Executing: push(1); push(2)");
-    let mut v = MiniVec::new();
+    let mut v = LessVec::new();
     v.push(1);
     v.push(2);
     println!("initial: {:?}", v.as_slice());
@@ -43,7 +43,7 @@ fn main() {
 
     // Consume via into_iter
     println!(">>> Executing: into_iter()");
-    let mut v2 = MiniVec::new();
+    let mut v2 = LessVec::new();
     v2.push(10);
     v2.push(20);
     let collected: Vec<_> = v2.into_iter().collect();

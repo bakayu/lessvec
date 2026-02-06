@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "minivec"
+name = "lessvec"
 version = "0.1.0"

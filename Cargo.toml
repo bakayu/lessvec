@@ -1,9 +1,18 @@
 [package]
-name = "minivec"
+name = "lessvec"
 version = "0.1.0"
 edition = "2024"
 description = "A custom Vec implementation using the Rust standard library."
+authors = ["Ayush Chauhan (bakayu) <mail@ayuch.dev>"]
 readme = "README.md"
+categories = ["data-structures", "collections"]
 license = "MIT"
+repository = "https://github.com/bakayu/lessvec.git"
+exclude = ["target", ".github"]
+homepage = "https://github.com/bakayu/lessvec"
+documentation = "https://docs.rs/lessvec"
 
 [dependencies]
+
+[package.metadata.docs.rs]
+all-features = true

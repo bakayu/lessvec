@@ -1,14 +1,14 @@
 //! A minimal `Vec`-like collection implemented with manual allocation.
 //!
-//! This crate provides `MiniVec<T>`, a small, educational reimplementation of
+//! This crate provides `LessVec<T>`, a small, educational reimplementation of
 //! `std::vec::Vec<T>` following patterns from the Rustonomicon. It's intended
 //! for learning and small use-cases, not as a drop-in replacement for `Vec`.
 //!
 //! # Examples
 //! ```
-//! use minivec::MiniVec;
+//! use lessvec::LessVec;
 //!
-//! let mut v = MiniVec::new();
+//! let mut v = LessVec::new();
 //! v.push(1);
 //! v.push(2);
 //! assert_eq!(&*v, &[1, 2]);
@@ -132,36 +132,36 @@ impl<T> Drop for RawVec<T> {
 
 /// A minimal growable contiguous vector.
 ///
-/// `MiniVec<T>` stores elements in a heap buffer and supports a small set of
+/// `LessVec<T>` stores elements in a heap buffer and supports a small set of
 /// `Vec`-like operations. Use the methods below to manipulate the collection.
 ///
 /// # Examples
 ///
 /// ```
-/// use minivec::MiniVec;
+/// use lessvec::LessVec;
 ///
-/// let mut v = MiniVec::new();
+/// let mut v = LessVec::new();
 /// v.push(10);
 /// v.push(20);
 /// assert_eq!(v.len(), 2);
 /// assert!(!v.is_empty());
 /// assert!(v.capacity() >= 2);
 /// ```
-pub struct MiniVec<T> {
+pub struct LessVec<T> {
     buf: RawVec<T>,
     len: usize,
 }
 
-unsafe impl<T: Send> Send for MiniVec<T> {}
-unsafe impl<T: Sync> Sync for MiniVec<T> {}
+unsafe impl<T: Send> Send for LessVec<T> {}
+unsafe impl<T: Sync> Sync for LessVec<T> {}
 
-impl<T> Default for MiniVec<T> {
+impl<T> Default for LessVec<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> MiniVec<T> {
+impl<T> LessVec<T> {
     fn ptr(&self) -> *mut T {
         self.buf.ptr.as_ptr()
     }
@@ -170,17 +170,17 @@ impl<T> MiniVec<T> {
         self.buf.cap
     }
 
-    /// Creates a new, empty `MiniVec`.
+    /// Creates a new, empty `LessVec`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let v: MiniVec<i32> = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let v: LessVec<i32> = LessVec::new();
     /// assert_eq!(v.len(), 0);
     /// ```
     pub fn new() -> Self {
-        MiniVec {
+        LessVec {
             buf: RawVec::new(),
             len: 0,
         }
@@ -191,8 +191,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(1);
     /// assert_eq!(v.len(), 1);
     /// ```
@@ -205,8 +205,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// assert!(v.is_empty());
     /// v.push(1);
     /// assert!(!v.is_empty());
@@ -215,7 +215,7 @@ impl<T> MiniVec<T> {
         self.len == 0
     }
 
-    /// Returns the number of elements the `MiniVec` can hold without reallocating.
+    /// Returns the number of elements the `LessVec` can hold without reallocating.
     ///
     /// Note: capacity may be larger than the number of elements. Calling
     /// `reserve` or `reserve_exact` increases capacity.
@@ -223,8 +223,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v: MiniVec<i32> = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v: LessVec<i32> = LessVec::new();
     /// v.reserve(5);
     /// assert!(v.capacity() >= 5);
     /// ```
@@ -239,8 +239,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(1);
     /// v.clear();
     /// assert!(v.is_empty());
@@ -254,8 +254,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(1);
     /// assert_eq!(v.as_slice(), &[1]);
     /// ```
@@ -268,8 +268,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(1);
     /// v.as_mut_slice()[0] = 2;
     /// assert_eq!(v.as_slice(), &[2]);
@@ -278,15 +278,15 @@ impl<T> MiniVec<T> {
         &mut *self
     }
 
-    /// Ensures the `MiniVec` can hold at least `additional` more elements without reallocating.
+    /// Ensures the `LessVec` can hold at least `additional` more elements without reallocating.
     ///
     /// This grows capacity exponentially where necessary.
     ///
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v: MiniVec<i32> = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v: LessVec<i32> = LessVec::new();
     /// v.reserve(10);
     /// assert!(v.capacity() >= 10);
     /// ```
@@ -300,15 +300,15 @@ impl<T> MiniVec<T> {
         }
     }
 
-    /// Ensures the `MiniVec` has capacity for exactly `additional` more elements (no fewer).
+    /// Ensures the `LessVec` has capacity for exactly `additional` more elements (no fewer).
     ///
     /// Unlike `reserve`, this attempts to allocate the exact requested capacity in one go.
     ///
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v: MiniVec<i32> = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v: LessVec<i32> = LessVec::new();
     /// v.reserve_exact(3);
     /// assert!(v.capacity() >= 3);
     /// ```
@@ -325,8 +325,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(5);
     /// assert_eq!(v.len(), 1);
     /// assert_eq!(v.as_slice(), &[5]);
@@ -349,8 +349,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(10);
     /// assert_eq!(v.pop(), Some(10));
     /// assert_eq!(v.pop(), None);
@@ -373,8 +373,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(1);
     /// v.push(3);
     /// v.insert(1, 2);
@@ -407,8 +407,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(1);
     /// v.push(2);
     /// assert_eq!(v.remove(0), 1);
@@ -435,8 +435,8 @@ impl<T> MiniVec<T> {
     /// # Examples
     ///
     /// ```
-    /// use minivec::MiniVec;
-    /// let mut v = MiniVec::new();
+    /// use lessvec::LessVec;
+    /// let mut v = LessVec::new();
     /// v.push(10);
     /// v.push(20);
     /// let drained: Vec<_> = v.drain().collect();
@@ -455,7 +455,7 @@ impl<T> MiniVec<T> {
     }
 }
 
-impl<T> Drop for MiniVec<T> {
+impl<T> Drop for LessVec<T> {
     fn drop(&mut self) {
         if self.len != 0 {
             // deallocation is handled by RawVec
@@ -464,14 +464,14 @@ impl<T> Drop for MiniVec<T> {
     }
 }
 
-impl<T> Deref for MiniVec<T> {
+impl<T> Deref for LessVec<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
         unsafe { std::slice::from_raw_parts(self.ptr(), self.len) }
     }
 }
 
-impl<T> DerefMut for MiniVec<T> {
+impl<T> DerefMut for LessVec<T> {
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr(), self.len) }
     }
@@ -546,13 +546,13 @@ impl<T> DoubleEndedIterator for RawValIter<T> {
     }
 }
 
-/// Iterator that yields values by value when consuming a `MiniVec`.
+/// Iterator that yields values by value when consuming a `LessVec`.
 ///
 /// # Examples
 ///
 /// ```
-/// use minivec::MiniVec;
-/// let mut v = MiniVec::new();
+/// use lessvec::LessVec;
+/// let mut v = LessVec::new();
 /// v.push(1);
 /// v.push(2);
 /// let out: Vec<_> = v.into_iter().collect();
@@ -586,7 +586,7 @@ impl<T> Drop for IntoIter<T> {
     }
 }
 
-impl<T> IntoIterator for MiniVec<T> {
+impl<T> IntoIterator for LessVec<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
     fn into_iter(self) -> IntoIter<T> {
@@ -601,22 +601,22 @@ impl<T> IntoIterator for MiniVec<T> {
     }
 }
 
-/// An iterator produced by `MiniVec::drain`.
+/// An iterator produced by `LessVec::drain`.
 ///
 /// Iterates over and yields the drained elements by value.
 ///
 /// # Examples
 ///
 /// ```
-/// use minivec::MiniVec;
-/// let mut v = MiniVec::new();
+/// use lessvec::LessVec;
+/// let mut v = LessVec::new();
 /// v.push(1);
 /// v.push(2);
 /// let drained: Vec<_> = v.drain().collect();
 /// assert_eq!(drained, vec![1, 2]);
 /// ```
 pub struct Drain<'a, T: 'a> {
-    vec: PhantomData<&'a mut MiniVec<T>>,
+    vec: PhantomData<&'a mut LessVec<T>>,
     iter: RawValIter<T>,
 }
 
@@ -645,11 +645,11 @@ impl<'a, T> Drop for Drain<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::MiniVec;
+    use crate::LessVec;
 
     #[test]
     fn push_pop_roundtrip() {
-        let mut v = MiniVec::new();
+        let mut v = LessVec::new();
         v.push(1);
         v.push(2);
         v.push(3);
@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn insert_remove() {
-        let mut v = MiniVec::new();
+        let mut v = LessVec::new();
         v.push(1);
         v.push(3);
         v.insert(1, 2);
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn drain_consumes_elements() {
-        let mut v = MiniVec::new();
+        let mut v = LessVec::new();
         v.push(10);
         v.push(20);
         v.push(30);
@@ -686,7 +686,7 @@ mod tests {
 
     #[test]
     fn into_iter_works() {
-        let mut v = MiniVec::new();
+        let mut v = LessVec::new();
         v.push(1);
         v.push(2);
         v.push(3);
@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn reserve_and_capacity() {
-        let mut v: MiniVec<i32> = MiniVec::new();
+        let mut v: LessVec<i32> = LessVec::new();
         v.reserve(5);
         assert!(v.capacity() >= 5);
         v.reserve_exact(10);
@@ -706,7 +706,7 @@ mod tests {
 
     #[test]
     fn clear_works() {
-        let mut v = MiniVec::new();
+        let mut v = LessVec::new();
         v.push(1);
         v.clear();
         assert!(v.is_empty());
@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn as_slice_and_mut() {
-        let mut v = MiniVec::new();
+        let mut v = LessVec::new();
         v.push(1);
         assert_eq!(v.as_slice(), &[1]);
         v.as_mut_slice()[0] = 2;
