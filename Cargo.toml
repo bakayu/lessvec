@@ -5,7 +5,6 @@ edition = "2024"
 description = "A custom Vec implementation using the Rust standard library."
 authors = ["Ayush Chauhan (bakayu) <mail@ayuch.dev>"]
 readme = "README.md"
-categories = ["data-structures", "collections"]
 license = "MIT"
 repository = "https://github.com/bakayu/lessvec.git"
 exclude = ["target", ".github"]
