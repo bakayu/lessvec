@@ -1,4 +1,4 @@
-use lessvec::LessVec;
+use lessvec::prelude::*;
 
 fn main() {
     // Basic push/pop
@@ -49,4 +49,15 @@ fn main() {
     let collected: Vec<_> = v2.into_iter().collect();
     println!("into_iter collected: {:?}", collected);
     println!();
+
+    // Macro example - 1
+    println!(">>> Macro example 1 - Executing: lessvec![1, 2, 3]");
+    let v_macro = lessvec![1, 2];
+    println!("macro created: {:?}", v_macro.as_slice());
+    println!();
+
+    // Macro example - 2
+    println!(">>> Macro example 2 - Executing: lessvec![0; 2]");
+    let v_macro = lessvec![0; 2];
+    println!("macro created: {:?}", v_macro.as_slice());
 }

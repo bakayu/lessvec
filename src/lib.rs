@@ -24,6 +24,27 @@ use std::{
     ptr::{self, NonNull},
 };
 
+mod macros;
+
+/// Re-exports a small "prelude" of the most commonly-used items.
+///
+/// The prelude provides:
+/// - `LessVec` — the vector type
+/// - `lessvec!` — the convenient macro (same syntax as `vec!`)
+///
+/// Bring them into scope with:
+///
+/// ```
+/// use lessvec::prelude::*;
+///
+/// let v = lessvec![1, 2, 3];
+/// assert_eq!(v.as_slice(), &[1, 2, 3]);
+/// ```
+pub mod prelude {
+    pub use crate::LessVec;
+    pub use crate::lessvec;
+}
+
 struct RawVec<T> {
     ptr: NonNull<T>,
     cap: usize,
@@ -645,7 +666,7 @@ impl<'a, T> Drop for Drain<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::LessVec;
+    use crate::prelude::*;
 
     #[test]
     fn push_pop_roundtrip() {
@@ -719,5 +740,23 @@ mod tests {
         assert_eq!(v.as_slice(), &[1]);
         v.as_mut_slice()[0] = 2;
         assert_eq!(v.as_slice(), &[2]);
+    }
+
+    #[test]
+    fn macro_basic() {
+        let v = lessvec![1, 2, 3];
+        assert_eq!(&*v, &[1, 2, 3]);
+    }
+
+    #[test]
+    fn macro_empty() {
+        let v: LessVec<i32> = lessvec![];
+        assert_eq!(v.len(), 0);
+    }
+
+    #[test]
+    fn macro_repeat() {
+        let v = lessvec![5; 3];
+        assert_eq!(&*v, &[5, 5, 5]);
     }
 }
