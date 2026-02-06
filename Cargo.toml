@@ -1,0 +1,9 @@
+[package]
+name = "minivec"
+version = "0.1.0"
+edition = "2024"
+description = "A custom Vec implementation using the Rust standard library."
+readme = "README.md"
+license = "MIT"
+
+[dependencies]
